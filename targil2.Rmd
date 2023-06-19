@@ -1,0 +1,261 @@
+---
+title: "Single Cell RNA Sequencing Analysis"
+author: "Or gabay 314923681 & Daniel levy 208150433 & Shachar oron 322807231"
+date: "15/06/2023"
+output:
+  html_notebook: default
+  html_document:
+    df_print: paged
+  pdf_document: default
+dataset: "https://www.10xgenomics.com/resources/datasets/5k-adult-mouse-liver-nuclei-isolated-with-chromium-nuclei-isolation-kit-3-1-standard"
+---
+
+# Introduction
+  
+In this notebook we present single-cell RNA-seq (scRNA-seq) data analysis. RNA sequencing is a technology that has appeared in the biotech market in recent years, it allows us researchers to examine the expression of different genes in individual cells, and thus to see gene expression in many cells. The analysis of the sequencing technology will yield new information about how genes are expressed across the many different cells.
+
+During the analysis, we used the R programming language in order to be able to analyze the biological data in the best possible way, using rich libraries that exist and are detailed later in the report itself.
+
+During the report we used the following database: "5k Adult Mouse Liver Nuclei Isolated with Chromium Nuclei Isolation Kit" which we found on the 10X website at the following link:
+https://www.10xgenomics.com/resources/datasets/5k-adult-mouse-liver-nuclei-isolated-with-chromium-nuclei-isolation-kit-3-1-standard
+
+This representative dataset represents a collection of single-cell RNA-seq (scRNA-seq) data derived from the adult mouse liver. As mentioned above, in scRNA-seq, individual cells are isolated and their RNA content is sequenced, allowing researchers to study gene expression patterns at single-cell resolution.
+
+The adult mouse liver is a vital organ responsible for various functions, such as metabolism, detoxification and bile production. Understanding the cellular composition and gene expression profiles of the liver can provide important insights into its functions, cellular heterogeneity and the molecular mechanisms underlying liver biology.
+
+In this data set, liver tissue was isolated into single nuclei using the Chromium Nuclei Isolation Kit from 10x Genomics. The nuclei contain the genomic DNA and RNA, which provide information about gene expression patterns in different cell types within the liver. By analyzing the scRNA-seq data (as we detailed later in the report) from these liver nuclei, researchers will be able to more easily decipher the cellular diversity, cell type-specific gene expression, and potential interactions between different cell populations within the liver.
+
+Sequencing of this dataset was done by illumina NovaSeq 6000.
+
+## libraries:
+```{r}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+```
+
+## load dataset:
+```{r init}
+# Load the PBMC dataset
+pbmc.data <- Read10X(data.dir = "mydata")
+# Initialize the Seurat object with the raw (non-normalized data).
+pbmc <- CreateSeuratObject(counts = pbmc.data, project = "pbmc3k", min.cells = 3, min.features = 200)
+pbmc
+```
+
+# Standard pre-processing workflow
+
+
+## QC and selecting cells for further analysis
+In this section we have printed some metrics for our first five cells that are in the Seurat object. Here you can see indicators such as the count of RNA molecules, the number of genes present here and the percentage of mitochondrial genes (mt). In this way and later we can draw conclusions about the quality of the existing cells:
+
+```{r mito, fig.height=7, fig.width=10}
+# The [[ operator can add columns to object metadata. This is a great place to stash QC stats
+pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, pattern = "^MT-")
+```
+
+```{r qc, fig.height=7, fig.width=10}
+# Show QC metrics for the first 5 cells
+head(pbmc@meta.data, 5)
+```
+
+
+```{r qc2, fig.height=7, fig.width=10}
+#Visualize QC metrics as a violin plot
+VlnPlot(pbmc, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+# FeatureScatter is typically used to visualize feature-feature relationships, but can be used for anything calculated by the object, i.e. columns in object metadata, PC scores etc.
+plot1 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot1
+plot2
+```
+
+In the above part we created fiddle and scatter plots. We used the Seurat function to create a violin plot to see the scatter of our data in a good way. We used the three parameters from earlier: number of RNA molecules, number of genes and percentage of mitochondrial genes and illustrated each of these parameters in a plot to test the relationships between different quality control indicators.
+Our conclusion is that it can be seen that the percentage of mitochondrial genes is zero and it can be concluded from the graphs that we would like to take the cells that appear in the wider area of the violin plot and get rid of or ignore the rest of the scatter.
+
+* Note that we intentionally also wrote about the percentage of mitochondrial genes in order to prove that the distribution is zero.
+
+```{r}
+pbmc <- subset(pbmc, subset = nFeature_RNA > 500 & nFeature_RNA < 5000 & percent.mt < 5)
+```
+
+In this part we filtered the cells according to the quality control measures we received in the previous analysis.
+That is, we will remove from the data the cells with the extreme values, that is, we will only remain with the cells that have 500-5000 nFeature_RNA and less than 5% mitochondrial genes (it has no meaning - because they all have 0).
+***
+# Normalizing the data
+
+
+```{r}
+pbmc <- NormalizeData(pbmc, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+
+```{r}
+pbmc <- NormalizeData(pbmc)
+```
+
+
+```{r normalize}
+pbmc <- SCTransform(pbmc, verbose = F)
+```
+## second QC and selecting cells for further analysis
+
+After we have performed normalization and filtering according to the previous parameters and charts, we will present the charts again to show the actions performed and to see that the pre-processing of the database was performed correctly and indeed the quality of the data was improved, as can be seen in the graphs below:
+
+```{r qc2.1, fig.height=7, fig.width=10}
+#Visualize QC metrics as a violin plot
+VlnPlot(pbmc, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+# FeatureScatter is typically used to visualize feature-feature relationships, but can be used for anything calculated by the object, i.e. columns in object metadata, PC scores etc.
+plot1 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot1
+plot2
+```
+
+You can see in the graphs that indeed the filtering and pre-processing we performed was performed well because the dispersion and distribution of the data in these violin plots is better. However, we note that there is still no improvement in the graph of the mitochondrial genes and that is fine and normal, we intentionally want to show this, since in this database there are simply no genes originating from the mitochondria, apparently.
+
+# Identification of highly variable features (feature selection)
+
+
+In this part of the report, we search for and find changing genes from our database. This is of great significance because genes that change over time or that change between different cells with high frequency probably contain significant biological information, and it is relevant to us here, in the experiment with the mouse liver cells.
+
+
+```{r var_features, fig.height=5, fig.width=10}
+pbmc <- FindVariableFeatures(pbmc, selection.method = 'vst', nfeatures = 2000)
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(pbmc), 10)
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(pbmc)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+```
+
+***
+# Scaling the data
+
+In this part we have made changes to the scale of our data, this is an important and significant operation and we are doing it to normalize the gene expression in the existing data set in such a way that they will be the same honest information.
+
+```{r regress, fig.height=7, fig.width=10, results='hide', eval = F}
+all.genes <- rownames(pbmc)
+pbmc <- ScaleData(pbmc, features = all.genes)
+```
+
+
+```{r regressvarmt, fig.height=7, fig.width=10, results='hide',eval = FALSE}
+pbmc <- ScaleData(pbmc, vars.to.regress = 'percent.mt')
+```
+ 
+***
+# Perform linear dimensional reduction
+
+In this part we used PCA. PCA is a technique that aims to reduce the dimension of our data and thus it transforms the high-dimensional gene expression data (if any) into a lower-dimensional space, while preserving as much information as possible, which will not go to processing. As we have learned, this technique is very useful in such cases, of analyzing single cell RNA-seq data.
+  For each of the following: PC1, PC2, PC3... and so on, we checked which genes have a positive correlation and which genes have a negative correlation, i.e. which genes whose expression increase will generally increase the value of PC1 (for example) and which genes whose expression increase will decrease Usually the value of PC1, as detailed below:
+  
+```{r pca,results='hide'}
+pbmc <- RunPCA(pbmc, features = VariableFeatures(object = pbmc))
+```
+
+Seurat provides several useful ways of visualizing both cells and features that define the PCA, including `VizDimReduction()`, `DimPlot()`, and `DimHeatmap()`
+In this section, after we have performed the PCA, we want to present our results in several ways to show and illustrate our current data distribution, we have selected the top 5 dimensions.
+
+```{r pca_viz, message=TRUE}
+# Examine and visualize PCA results a few different ways
+
+
+print(pbmc[['pca']], dims = 1:5, nfeatures = 5)
+```
+Here is a plot of loading PCA dimensions (each point in the drawing is a gene), and by this drawing we can understand the contribution of each of the genes to the dimensions of PCA:
+
+```{r}
+VizDimLoadings(pbmc, dims = 1:2, reduction = 'pca')
+```
+Here is a plot of the dispersion of the (reduced) PCA data (each point in the drawing represents a cell), and by this plot we can simulate the cell clustering by expression of all the genes:
+```{r}
+DimPlot(pbmc, reduction = 'pca')
+```
+
+In this part we created a heatmap plot. These plots help us understand how the genes contribute to PC1 and their expression in the cells, we would like to see clear and distinct patterns of gene expression and thus we can conclude that PC1 captures significant biological variation.
+We showed this to the first 12 principal components. We saw that for the first five: PC1 to PC5, it was seen in the best, clearest and most significant way and so we chose them:
+
+```{r single-heatmap}
+DimHeatmap(pbmc, dims = 1, cells = 500, balanced = TRUE)
+```
+
+```{r multi-heatmap, fig.height=15, fig.width=9}
+DimHeatmap(pbmc, dims = 1:12, cells = 500, balanced = TRUE)
+```
+
+# Determine the 'dimensionality' of the dataset
+
+In this section we presented an elbow plot, a plot that can give us more information and can be thought of immediately. You can see that the elbow starts to straighten at about 6 (PC6). 
+The elbow plot helped us choose the optimal number of PCs - 6:
+
+```{r elbow_plot, fig.height=4, fig.width=8}
+ElbowPlot(pbmc)
+```
+
+
+
+***
+# Cluster the cells
+
+
+In this part we would like to classify and group the cells by the KNN algorithm (which we learned in the lessons). This algorithm calculates the distance between different points in space and then tags each such point to a cluster in it by finding its K closest neighbors (checks what type of its neighbors and thus according to the most common type a point is classified). For each cell a short and different DNA sequence was assigned (so that we could mark and label it) and this can be seen for the first 5. We received a total of 12 clusters (0-11):
+
+```{r cluster, fig.height=5, fig.width=6}
+pbmc <- FindNeighbors(pbmc, dims = 1:6)
+pbmc <- FindClusters(pbmc, resolution = 0.5)
+```
+
+The clusters can be found using the `Idents()` function.
+
+```{r}
+# Look at cluster IDs of the first 5 cells
+head(Idents(pbmc), 5)
+```
+
+***
+
+# Run non-linear dimensional reduction (UMAP/tSNE)
+
+
+In this part we wanted to reduce dimensionality in a non-linear way to model our dataset, we did it by UMAP, so that nearby cells will have the same color and each cluster will have its own color. You can see that we got a relatively good classification and separation between all 12 clusters:
+
+```{r tsne, fig.height=4, fig.width=5}
+# If you haven't installed UMAP, you can do so via reticulate::py_install(packages = "umap-learn")
+pbmc <- RunUMAP(pbmc, dims = 1:6)
+```
+
+```{r tsneplot, fig.height=4, fig.width=5}
+# note that you can set `label = TRUE` or use the LabelClusters function to help label individual clusters
+umap_dimplot <- DimPlot(pbmc, reduction = 'umap', label=TRUE)
+umap_dimplot
+```
+
+```{r saveobject, eval=FALSE}
+saveRDS(pbmc, file = "../output/pbmc_tutorial.rds")
+``` 
+
+# Finding differentially expressed features (cluster biomarkers)
+
+
+In this part we want to show in a heat map the expression level of each marker in the clusters. According to the heat maps we received, we can conclude that when comparing a cluster against all the other clusters, we see that the markers we received can filter the clusters that are less relevant to us (relatively):
+
+`DoHeatmap()` generates an expression heatmap for given cells and features. In this case, we are plotting the top 20 markers (or all markers if less than 20) for each cluster.
+
+```{r clusterHeatmap, fig.height=7, fig.width=10}
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+pbmc.markers <- FindAllMarkers(pbmc, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+pbmc.markers %>% group_by(cluster) %>% slice_max(n = 2, order_by = avg_log2FC)
+pbmc.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC) -> top10
+DoHeatmap(pbmc, features = top10$gene) + NoLegend()
+``` 
+***
+# Summary and Conclusions:
+
+
+In this report, we performed a database analysis of five thousand mouse liver nuclei isolated with a Chromium Nucleus Isolation Kit, and acquired data analysis tools in the R language as we learned.
+We defined the Seurat object as we learned in practice and performed QC and preprocessing on the dataset, where we filtered out cells that presented extreme results, and removed cells of low quality. We saw that the percentage of mitochondrial genes stands at 0%, an important detail that shows that indeed in the experiment they worked on the nucleus of the liver cells and there is no DNA or RNA originating from the mitochondria, so these results make sense. We performed PCA to capture Principal components for the variations in our database, and after several analyzes and presentations in graphs we decided on 6 such Principal components. We used the KNN algorithm to perform clustering and UMAP to model the mouse liver cell dataset. We identified and presented in a heat map variable characteristics between different clusters, and these are the biological markers.
+Analysis of scRNA-seq data brought us conclusions regarding the original data we had, conclusions regarding the differences between the data and we even identified possible biomarkers that will help us classify the cell types and distinguish between them.
+
+
