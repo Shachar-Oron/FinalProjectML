@@ -1,0 +1,34 @@
+---
+  title: "FinalProject_EDA"
+author: " Or gabay 314923681 & Daniel levy  208150433 & Shachar Oron 322807231"
+output: 
+  pdf_document:
+  latex_engine: xelatex
+date: "2023-06-21"
+---
+  In this code we want to do EDA on the data set(sertoli= male,granulosa = female ).
+First, we load the tidyverse library, which contains everything we need to perform this analysis.
+
+```{r setup, include=FALSE}
+options(repos = "http://cran.rstudio.com/")
+library(tidyverse)
+library(ggplot2)
+```
+
+## Data Structure
+first we get the data from the csv file 
+
+```{r}
+combined_data <- read.csv("FinalProjectML/combined_data.csv")
+late_granulosa <- read.csv("FinalProjectML/granulosa_overlaps_table.csv")
+late_sertoli <- read.csv("FinalProjectML/pre_xx_overlaps_table.csv")
+early_granulosa <- read.csv("FinalProjectML/pre_xx_overlaps_table.csv")
+early_sertoli <- read.csv("FinalProjectML/pre_xy_overlaps_table.csv")
+```
+
+Then we would like to check a few commands to help us learn more about the structure of the data:
+
+```{r}
+# structure of the data
+str(combined_data)
+```
