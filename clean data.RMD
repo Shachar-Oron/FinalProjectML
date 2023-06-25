@@ -1,0 +1,165 @@
+---
+title: "clean data and PCA"
+author: "Danielle Hodaya Shrem"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+1. Read the data file: The original data was read from a file using the appropriate function (e.g., `read.csv()`, `read_excel()`) to load the data into R.
+
+2. Extract relevant rows: The required rows containing column names (row 6) and values (row 15 onwards) were extracted from the original data using indexing or subsetting techniques. This was done to separate the column names from the data values.
+
+3. Create a new table: A new table was created using the extracted column names and data values. The column names were set using the values from row 6, and the corresponding data values were assigned from row 15 onwards. This was accomplished using functions like `data.frame()` or by manipulating the data structure directly.
+
+4. Remove rows with `NA` values: To remove the rows with `NA` values, the `complete.cases()` function was applied to the new table. This function generated a logical vector indicating which rows had complete cases (no `NA` values). Subsetting the table using this logical vector resulted in a new table containing only the rows with complete cases, effectively removing the rows with `NA` values.
+
+5. View the updated table: The final step involved viewing the updated table, `new_table_complete`, which contained the column names extracted from row 6 and the corresponding values from row 15 onwards. This provided a clean and filtered representation of the data, excluding any rows with `NA` values.
+
+By following these steps, the original data was processed, and a new table was created with the column names extracted from row 6 and values extracted from row 15 onwards. The table was further refined by removing rows with `NA` values, resulting in a more accurate representation of the available data.
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(ggrepel)
+library(cowplot)
+library(GGally)
+```
+
+
+```{r}
+# Assuming your original data is stored in a variable named 'data'
+
+# Extract column names from row 6
+col_names <- as.character(data[6, ])
+
+# Create a new table starting from row 15
+new_table <- data[15:nrow(data), ]
+
+# Assign the extracted column names to the new table
+colnames(new_table) <- col_names
+
+# View the new table
+new_table
+
+```
+
+Remove rows with NA values:
+
+```{r}
+# Create a logical vector indicating rows with any non-NA value
+non_na_rows <- apply(new_table, 1, function(row) any(!is.na(row)))
+
+# Subset the table to keep only the rows with non-NA values
+new_table_clean <- new_table[non_na_rows, ]
+
+# View the updated table without rows containing all NA values
+new_table_clean
+
+
+```
+
+
+```{r}
+# Find the column number of "Diagnosed with endo"
+column_number <- which(colnames(new_table_clean) == "Diagnosed with endo (ie at least one biopsy positve)")
+
+# Print the column number
+print(column_number)
+# Cut the table up to column 58 (inclusive)
+new_table_cut <- new_table_clean[, 2:58]
+
+# Print the modified table
+print(new_table_cut)
+# Delete columns 56 and 57 from the table
+new_table_cut <- new_table_cut[, -c(55, 56)]
+
+# Print the modified table
+print(new_table_cut)
+
+
+```
+
+
+1. `colSums(new_table_cut == "n", na.rm = TRUE)`: This line calculates the column sums of a logical comparison `new_table_cut == "n"`. It compares each element of `new_table_cut` with the string "n" and returns a logical matrix where `TRUE` represents a match and `FALSE` represents a non-match. The `colSums` function then calculates the sum of `TRUE` values for each column.
+
+2. `n_counts`: This variable stores the result of the column sums, representing the counts of "n" values in each column.
+
+3. `print(n_counts)`: This line prints the `n_counts` variable, displaying the counts of "n" values in each column.
+
+The code helps you identify the number of "n" values present in each column of the `new_table_cut` data frame. By using `colSums`, you can efficiently calculate these counts across all columns.
+
+```{r}
+# Calculate the number of "n" values in each column
+n_counts <- colSums(new_table_cut == "n", na.rm = TRUE)
+
+# Calculate the total number of rows in the table
+total_rows <- nrow(new_table_cut)
+
+# Identify columns with more than half "n" values
+columns_to_drop <- names(n_counts[n_counts > total_rows/2])
+
+# Drop the columns from the table
+new_table_cut_filtered <- new_table_cut[, !(names(new_table_cut) %in% columns_to_drop)]
+
+
+
+
+# Replace 'n' value with 5 in column number 3
+new_table_cut_filtered[, 3][new_table_cut_filtered[, 3] == "n"] <- "5"
+
+# Count the number of 'n' values in each column
+n_values <- colSums(new_table_cut_filtered == "n", na.rm = TRUE)
+
+# Print the counts
+print(n_values)
+new_table_cut_filtered
+
+
+```
+```{r}
+install.packages("mice")
+library(mice)
+
+```
+
+1. **Install and load the MICE package**: To begin, you need to install the MICE package in R if you haven't already. You can do this by running the command `install.packages("mice")`. Once the package is installed, load it into your R session using `library(mice)`.
+
+2. **Convert 'n' values to NA**: In your dataset, the 'n' values represent missing values. Before performing the imputation, it's necessary to convert these 'n' values to the standard missing value representation in R, which is NA. This can be done by replacing all 'n' values in your dataset with NA using the code `new_table_clean[new_table_clean == "n"] <- NA`.
+
+3. **Create a MICE imputation object**: The next step is to create a MICE imputation object, which will define the imputation model and settings. This can be done by calling the `mice()` function and passing your dataset as an argument, like `imputation_object <- mice(new_table_clean)`. The MICE package will automatically handle the missing values and estimate the imputation model based on the observed data.
+
+4. **Perform the imputation**: Once you have the MICE imputation object, you can perform the imputation by calling the `complete()` function on the object. This function generates the imputed dataset based on the estimated imputation model. The imputed dataset will have the missing values replaced with imputed values. You can store the imputed dataset in a new variable, such as `imputed_data <- complete(imputation_object)`.
+
+It's important to note that MICE uses a multivariate imputation approach, which means that it considers the relationships between variables when imputing missing values. The imputation is based on statistical models estimated from the observed data, allowing for plausible estimation of missing values based on the available information.
+
+It's always recommended to carefully evaluate the quality and validity of the imputed values. Assessing the imputation models, examining imputed values compared to observed values, and considering the specific characteristics of your dataset are important steps in ensuring the reliability of the imputed data.
+
+Remember to consult the documentation and resources provided by the MICE package for more detailed information and guidance on using MICE for imputing missing values in your specific dataset.
+
+```{r}
+# Replace "n" values with NA
+new_table_cut_filtered[new_table_cut_filtered == "n"] <- NA
+new_table_cut_filtered[new_table_cut_filtered == "N"] <- NA
+
+# Convert columns to numeric
+new_table_cut_filtered <- as.data.frame(lapply(new_table_cut_filtered, as.numeric))
+
+# Perform single imputation using mice
+imputation_object <- mice(new_table_cut_filtered, m = 1)
+
+# Access the imputed data without modifying column names
+imputed_data <- complete(imputation_object, action = "long", include = FALSE)
+
+
+
+```
+
+```{r}
+
+
+imputed_data
+# Save imputed data to a CSV file
+write.csv(imputed_data, "imputed_data.csv", row.names = FALSE)
+```
+
