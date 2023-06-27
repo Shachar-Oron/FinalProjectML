@@ -1,0 +1,124 @@
+---
+title: "pca and knn"
+output: html_document
+date: "2023-06-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+```{r}
+mydata <- read.csv("imputed_data.csv")
+```
+
+
+```{r}
+library(ggplot2)
+
+# Remove the "Intraoperative.complication" column
+mydata_clean <- mydata[1:(nrow(mydata)-3), ]
+data_clean <- mydata_clean[, -which(names(mydata_clean) == "Intraoperative.complication")]
+data_clean
+# Remove the label column
+data_without_label <- data_clean[, -which(names(data_clean) == "Diagnosed.with.endo..ie.at.least.one.biopsy.positve.")]
+
+# Z-score normalization
+zscore_data <- scale(data_without_label)
+
+# Min-max normalization
+minmax_data <- apply(data_without_label, 2, function(x) (x - min(x)) / (max(x) - min(x)))
+# Decimal scaling normalization
+decimal_data <- apply(data_clean, 2, function(x) x / 10^ceiling(log10(max(abs(x)))))
+
+# Log transformation normalization
+log_data <- log1p(abs(data_clean)) * sign(data_clean)
+
+# Unit vector transformation normalization
+unit_vector_data <- sweep(data_clean, 2, sqrt(rowSums(data_clean^2)), FUN = "/")
+
+
+# Perform PCA on z-score normalized data
+pca_result_zscore <- prcomp(zscore_data)
+
+# Perform PCA on min-max normalized data
+pca_result_minmax <- prcomp(minmax_data)
+# Perform PCA on decimal scaled data
+pca_result_decimal <- prcomp(decimal_data)
+
+# Perform PCA on log transformed data
+pca_result_log <- prcomp(log_data)
+
+# Perform PCA on unit vector transformed data
+pca_result_unit_vector <- prcomp(unit_vector_data)
+
+# Create a data frame for plotting (z-score normalization)
+pca_graph_zscore <- data.frame(
+  PC1 = pca_result_zscore$x[, 1],
+  PC2 = pca_result_zscore$x[, 2],
+  label = data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.,
+  classification = factor(data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve., levels = c(0, 1), labels = c("0: Healthy", "1: Sick"))
+)
+
+pca_graph_decimal <- data.frame(
+  PC1 = pca_result_decimal$x[, 1],
+  PC2 = pca_result_decimal$x[, 2],
+  label = data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.,
+  classification = factor(data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve., levels = c(0, 1), labels = c("0: Healthy", "1: Sick"))
+)
+
+pca_graph_log <- data.frame(
+  PC1 = pca_result_log$x[, 1],
+  PC2 = pca_result_log$x[, 2],
+  label = data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.,
+  classification = factor(data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve., levels = c(0, 1), labels = c("0: Healthy", "1: Sick"))
+)
+
+pca_graph_unit_vector <- data.frame(
+  PC1 = pca_result_unit_vector$x[, 1],
+  PC2 = pca_result_unit_vector$x[, 2],
+  label = data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.,
+  classification = factor(data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve., levels = c(0, 1), labels = c("0: Healthy", "1: Sick"))
+)
+
+# Plot PCA results for z-score normalized data
+ggplot(pca_graph_zscore, aes(x = PC1, y = PC2, col = classification)) +
+  geom_point() + labs(title = "Z-Score Normalization PCA Results")
+
+# Create a data frame for plotting (min-max normalization)
+pca_graph_minmax <- data.frame(
+  PC1 = pca_result_minmax$x[, 1],
+  PC2 = pca_result_minmax$x[, 2],
+  label = data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.,
+  classification = factor(data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve., levels = c(0, 1), labels = c("0: Healthy", "1: Sick"))
+)
+
+# Plot PCA results for min-max normalized data
+ggplot(pca_graph_minmax, aes(x = PC1, y = PC2, col = classification)) +
+  geom_point() + labs(title = "Min-Max Normalization PCA Results")
+
+# Plot PCA results for decimal scaled data
+ggplot(pca_graph_decimal, aes(x = PC1, y = PC2, col = classification)) +
+  geom_point() + labs(title = "Decimal Scaling PCA Results")
+
+# Plot PCA results for log transformed data
+ggplot(pca_graph_log, aes(x = PC1, y = PC2, col = classification)) +
+  geom_point() + labs(title = "Log Transformation PCA Results")
+
+# Plot PCA results for unit vector transformed data
+ggplot(pca_graph_unit_vector, aes(x = PC1, y = PC2, col = classification)) +
+  geom_point() + labs(title = "Unit Vector Transformation PCA Results")
+
+
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
