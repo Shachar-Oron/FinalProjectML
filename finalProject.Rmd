@@ -1,0 +1,923 @@
+---
+title: "Untitled"
+author: "Or gabay 314923681 & Daniel levy 208150433 & Shachar oron 322807231"
+date: "2023-06-25"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(repos = "http://cran.rstudio.com/")
+library(tidyverse)
+library(ggplot2)
+library(MASS)
+library(reshape2)
+library(cowplot)
+library(dplyr)
+library(scales)
+library(corrplot)
+library(caret)
+library(randomForest)
+library(gmodels)
+library(Rtsne)
+library(class)
+library(ggrepel)
+library(GGally)
+```
+## Cleaning the data
+our data contains a lot of missing values. We have dicided that columns that has more then half of NA values- we will delete it. There will be still some NA values in the data, so, we installed the 'mice' library that replace the NA values with other values according to the distribution of the other values in the data. 
+```{r}
+# Assuming your original data is stored in a variable named 'data'
+# לא טוב צריך לשנות את זה למה שדניאל עשתה
+data <- read.csv("../FinalProjectML/imputed_data.csv")
+# Extract column names from row 6
+col_names <- as.character(data[6, ])
+
+# Create a new table starting from row 15
+new_table <- data[15:nrow(data), ]
+
+# Assign the extracted column names to the new table
+colnames(new_table) <- col_names
+
+# View the new table
+new_table
+
+```
+Remove rows with NA values:
+
+```{r}
+# Create a logical vector indicating rows with any non-NA value
+non_na_rows <- apply(new_table, 1, function(row) any(!is.na(row)))
+
+# Subset the table to keep only the rows with non-NA values
+new_table_clean <- new_table[non_na_rows, ]
+
+# View the updated table without rows containing all NA values
+new_table_clean
+
+
+```
+```{r}
+# Find the column number of "Diagnosed with endo"
+column_number <- which(colnames(new_table_clean) == "Diagnosed with endo (ie at least one biopsy positve)")
+
+# Print the column number
+print(column_number)
+# Cut the table up to column 58 (inclusive)
+new_table_cut <- new_table_clean[, 2:58]
+
+# Print the modified table
+print(new_table_cut)
+# Delete columns 56 and 57 from the table
+new_table_cut <- new_table_cut[, -c(55, 56)]
+
+# Print the modified table
+print(new_table_cut)
+```
+The code helped us identify the number of "n" values present in each column of the `new_table_cut` data frame. By using `colSums`, you can efficiently calculate these counts across all columns.
+
+```{r}
+# Calculate the number of "n" values in each column
+n_counts <- colSums(new_table_cut == "n", na.rm = TRUE)
+
+# Calculate the total number of rows in the table
+total_rows <- nrow(new_table_cut)
+
+# Identify columns with more than half "n" values
+columns_to_drop <- names(n_counts[n_counts > total_rows/2])
+
+# Drop the columns from the table
+new_table_cut_filtered <- new_table_cut[, !(names(new_table_cut) %in% columns_to_drop)]
+
+
+
+
+# Replace 'n' value with 5 in column number 3
+new_table_cut_filtered[, 3][new_table_cut_filtered[, 3] == "n"] <- "5"
+
+# Count the number of 'n' values in each column
+n_values <- colSums(new_table_cut_filtered == "n", na.rm = TRUE)
+
+# Print the counts
+print(n_values)
+new_table_cut_filtered
+
+
+```
+```{r}
+install.packages("mice")
+library(mice)
+
+```
+```{r}
+# Replace "n" values with NA
+new_table_cut_filtered[new_table_cut_filtered == "n"] <- NA
+new_table_cut_filtered[new_table_cut_filtered == "N"] <- NA
+
+# Convert columns to numeric
+new_table_cut_filtered <- as.data.frame(lapply(new_table_cut_filtered, as.numeric))
+
+# Perform single imputation using mice
+imputation_object <- mice(new_table_cut_filtered, m = 1)
+
+# Access the imputed data without modifying column names
+imputed_data <- complete(imputation_object, action = "long", include = FALSE)
+
+
+
+```
+
+```{r}
+
+
+imputed_data
+# Save imputed data to a CSV file
+write.csv(imputed_data, "imputed_data.csv", row.names = FALSE)
+```
+Now when we got our data cleaned. We will jump in and start by loading the clean data and analyze it. 
+
+## Data Structure
+first we get the data from the csv file.
+The data contains information about patients that were diagnosed with endometriosis and some of them are only suspected but weren't diagnosed.endometriosis is a chronic progressive inflammatory disease that affects about 1 in 10 women in the population. A "transparent" disease about which there is not enough data, due to that, we see it as an important mission to do research on it. we would like to understand what are the significant symptoms that helps with  diagnose the disease. This disease takes a lot of time to diagnose (in Israel it takes 11 years on average).  
+
+```{r}
+mydata <- read.csv("../FinalProjectML/imputed_data.csv")
+```
+# RFE - features selection
+We saw that our data contains over 50 features and we would like to understand what are the significant features that help to understand whether the patient has endo or not. These features will be used by us in the selection plot later.
+```{r}
+print(paste("number of NAs in dataset:",sum(is.na(mydata))))
+
+# Specify your outcome variable (diagnosed_with_endo)
+outcome_var <- "Diagnosed.with.endo..ie.at.least.one.biopsy.positve."
+
+# Specify your predictor variables
+predictor_vars <- c("age", "parity", "race", "BMI", "duration.of.symptoms.prior.to.eval", "Relationship.status",
+                    "Education.level", "Initial.visual.analog.score", "Pain.with.ovulation", "Pain.just.before.period",
+                    "Pain..not.cramps..before.period", "Deep.pain.with.intercourse", "Pain.in.groin.when.lifting",
+                    "Pelvic.pain.lasting.days.or.hours.after.intercourse", "Level.of.cramps.with.period",
+                    "Pain.after.period.is.over", "Pain.with.urination", "Backache", "Dyschezia..page.5.",
+                    "ROME.score", "X..prior.laparoscopies", "prior.pelvic.surgeries..includes.prior.cell.",
+                    "prior.hormone.therapy..page.4.", "current.hormone.therapy", "previous.hyst", "previous.BSO",
+                    "menarche", "Period.flow", "Days.between.menses", "Days.of.menstrual.flow", "Pain.onset.before.flow",
+                    "Pain.days.before.flow", "Regular.menses", "Exercise", "Caffeine.intake..servings.d.",
+                    "Tobacco.use....or...1ppd..21.cig.pk", "alcohol.use....or...10g.d.", "Prior.treatment.for.substance.abuse",
+                    "Recreational.drug.use", "PUF.score..page.6.", "History.of.sexual.abuse", "SPFS.on.exam",
+                    "X..sites.biopsied", "X..sites.with.confirmed.endo.on.histology", "Adhesions.present",
+                    "Intraoperative.complication", "EBL", "laparoscopic.or.robotic.procedure")
+
+# Create a data frame with the selected variables
+data_subset <- mydata[, c(outcome_var, predictor_vars)]
+data_subset <- na.omit(data_subset)
+
+
+# Define the control parameters for RFE
+control <- rfeControl(functions = rfFuncs, method = "cv", number = 10)
+# Perform RFE
+rfe_results <- rfe(x = data_subset[, predictor_vars], y = as.factor(data_subset[, outcome_var]), sizes = c(1:48), rfeControl = control)
+# summarize the results
+print(rfe_results)
+# list the chosen features
+varImp(rfe_results)
+# plot the results
+plot(rfe_results, type=c("g", "o"))
+
+```
+
+## correlation plot
+explaination: A positive correlation indicates that as one variable (e.g., dyschezia) increases, the other variable (e.g., ROME score) also tends to increase. A negative correlation, on the other hand, means that as one variable increases, the other variable tends to decrease. A correlation of zero suggests no linear relationship between the variables.
+```{r corroltion mtrix, echo=TRUE, message=FALSE, out.height="70%"}
+# Select the desired columns
+selected_columns <- mydata[, c("age", "BMI", 
+                               "Level.of.cramps.with.period", 
+                               "Dyschezia..page.5.", "ROME.score", "Pain.after.period.is.over", "menarche", "Pain..not.cramps..before.period", "SPFS.on.exam")]
+
+# Compute the correlation matrix
+cor_matrix <- cor(selected_columns)
+
+# Create the correlation plot
+corrplot(cor_matrix, method = "square")
+
+```
+It can be concluded that there is a strong relationship between dyschezia and ROME score in endometriosis patient. The strong relationship suggests a connection between endometriosis lesions affecting the gastrointestinal tract and pelvic discomfort.
+Dyschezia, a common symptom in endometriosis, is associated with inflammation, adhesions, or scarring caused by these lesions, leading to pain during bowel movements . In the other hand,  ROME score is a diagnostic classification system used to evaluate and classify functional gastrointestinal disorders.What make sense because endometriosis, is associated with inflammation that can be in in the digestive system and cause gastrological disorders. 
+In addition, it can be seen that there is a strong connection between the pain features in the study. 
+## Exploring the data
+```{r}
+#Age Analysis
+mydata %>%
+  group_by(age) %>%
+  count() %>%
+  ggplot(aes(x = as.factor(age), y = n)) +
+  geom_bar(stat = "identity", fill = "orange") +
+  ggtitle("Age Analysis") +
+  xlab("Age") +
+  ylab("Count")
+
+#relationship stusus
+# Create a data frame for the relationship statuses and their corresponding labels
+relationship_labels <- c("Single", "Married", "Widowed", "Remarried", "Separated", "Divorced", "Committed")
+relationship_data <- data.frame(status = c(0, 1, 2, 3, 4, 5, 6), label = relationship_labels)
+
+# Count the number of patients for each relationship status
+relationship_counts <- mydata %>%
+  count(Relationship.status) %>%
+  left_join(relationship_data, by = c("Relationship.status" = "status")) %>%
+  filter(!is.na(label))
+
+# Calculate the percentages
+relationship_counts <- relationship_counts %>%
+  mutate(percentage = round(n / sum(n) * 100, 2))
+
+# Create the pie chart with percentages
+pie_chart <- ggplot(relationship_counts, aes(x = "", y = n, fill = label)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(fill = "Relationship Status",
+       title = "Patient Relationship Status",
+       x = NULL,
+       y = NULL) +
+  scale_fill_manual(values = rainbow(length(relationship_labels))) +
+  theme_void() +
+  geom_text(aes(label = paste0(percentage, "%")), position = position_stack(vjust = 0.5))
+
+pie_chart
+
+
+#race
+# Create a copy of the data with the race column
+race_data <- mydata[, "race"]
+
+# Define the labels for the race categories
+race_labels <- c("Caucasian", "African American", "Hispanic", "Asian", "Other")
+
+# Convert the race column to a factor with the labels
+race_data <- factor(race_data, levels = 0:4, labels = race_labels)
+
+# Calculate the count of each race category
+race_counts <- table(race_data)
+
+# Calculate the percentages
+race_percentages <- race_counts / sum(race_counts) * 100
+
+# Create a data frame for the pie chart
+race_df <- data.frame(Race = race_labels, Count = as.numeric(race_counts), Percentage = race_percentages)
+
+# Plot the pie chart
+pie_chart <- ggplot(race_df, aes(x = "", y = Count, fill = Race)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(fill = "Race", x = NULL, y = NULL, title = "Distribution of Race") +
+  scale_fill_manual(values = rainbow(length(race_labels))) +
+  theme_void()
+
+# Display the pie chart
+pie_chart
+
+
+
+#  Education level
+# Create a data frame for education levels and their counts
+education_df <- data.frame(
+  Education = c("Less than 12yr", "High school", "College", "Postgrad degree"),
+  Count = table(mydata$Education.level)
+)
+
+# Fix the count values in the education_df data frame
+education_df$Count <- education_df$Count.Freq
+
+# Calculate the percentage
+education_df$Percentage <- percent(education_df$Count / sum(education_df$Count))
+
+# Generate the pie chart with percentages
+pie(education_df$Count, labels = paste0(education_df$Education, " (", education_df$Percentage, ")"), col = rainbow(length(education_df$Count)))
+
+# Add a legend
+legend("topright", legend = education_df$Education, fill = rainbow(length(education_df$Count)))
+
+# Add a title
+title("Education Level")
+
+
+```
+It can be seen that:
+1)the patients are aged 15-50.
+2)most of them are married (43%).
+3)the origin of most of them is Caucasian.
+4) most of them went to college (41.8%)
+## Diagnosed Vs non diagnosed patients
+Our data contains 144 patients, some of them are Diagnosed with Endometriosis but not every one. We would like to check the relationship between the number of those diagnosed and those who are not so that we can know things to continue such as how to normalize the data. 
+```{r}
+# Filter the data for diagnosed patients
+diagnosed_data <- filter(mydata, `Diagnosed.with.endo..ie.at.least.one.biopsy.positve.` == 1)
+
+# Filter the data for non-diagnosed patients
+non_diagnosed_data <- filter(mydata, `Diagnosed.with.endo..ie.at.least.one.biopsy.positve.` == 0)
+
+# Create a new column for diagnosed status
+diagnosed_data$Status <- "Diagnosed"
+non_diagnosed_data$Status <- "Non Diagnosed"
+
+# Combine the diagnosed and non-diagnosed data
+combined_data <- rbind(diagnosed_data, non_diagnosed_data)
+
+# Calculate the counts for each diagnosis status
+count_data <- combined_data %>% 
+  group_by(Status) %>% 
+  summarise(Count = n())
+
+# Plot the data
+ggplot(combined_data, aes(x = Status, fill = Status)) +
+  geom_bar() +
+  geom_text(data = count_data, aes(label = Count), vjust = -0.5, color = "black", size = 4, stat = "count") +
+  xlab("Endometriosis Diagnosis") +
+  ylab("Count") +
+  ggtitle("Diagnosed and Non-Diagnosed Cases of Endometriosis") +
+  scale_fill_manual(values = c("Diagnosed" = "blue", "Non Diagnosed" = "red")) +
+  theme_minimal()
+
+
+```
+It can be seen that there are 58 diagnosed with endometriosis compared to 86 who are not diagnosed.
+
+## Correlation between BMI and Endometriosis
+We needed to normalize the counts in the histogram for better comparison between diagnosed and non-diagnosed patients, by using the position = "identity" argument in the geom_histogram() function and divide the counts by the total number of patients in each group.
+```{r}
+
+# Calculate the total number of diagnosed and non-diagnosed patients
+total_diagnosed <- nrow(diagnosed_data)
+total_non_diagnosed <- nrow(non_diagnosed_data)
+
+# Create a histogram of BMI for diagnosed patients with normalized counts
+histogram_diagnosed <- ggplot(diagnosed_data, aes(x = BMI)) +
+  geom_histogram(aes(y = after_stat(count) / total_diagnosed), color = "blue", fill = "blue", bins = 20, position = "identity") +
+  labs(x = "BMI", y = "Normalized Count", title = "Histogram of BMI (Diagnosed)") +
+  theme_minimal()
+
+# Create a histogram of BMI for non-diagnosed patients with normalized counts
+histogram_non_diagnosed <- ggplot(non_diagnosed_data, aes(x = BMI)) +
+  geom_histogram(aes(y = after_stat(count) / total_non_diagnosed), color = "red", fill = "red", bins = 20, position = "identity") +
+  labs(x = "BMI", y = "Normalized Count", title = "Histogram of BMI (Non-Diagnosed)") +
+  theme_minimal()
+
+# Combine the histograms into a single plot
+combined_plot <- cowplot::plot_grid(histogram_diagnosed, histogram_non_diagnosed, ncol = 2)
+
+# Display the combined plot
+print(combined_plot)
+
+
+```
+Explanation about the BMI values:
+Underweight - BMI less than 18.5.
+Normal weight - BMI ranges from 18.5 to 25.
+Overweight - BMI ranges from 25 to 30.
+Obesity - BMI greater than 30.
+we can infer that both diagnosed and non diagnosed BMI values are mostly normal. The first thought was that most endo patients will have an abnormal BMI due to the effects the disease has on the digestive system.In conclusion, compared to healthy people, the BMI of endo patients is not much different.
+## Pain Level of cramps Comparison - bar plots
+Endo patients are known to suffer from pain before and during menstruation. We wanted to check the evidence given by endometriosis patients about their pain compared to those not diagnosed with endometriosis.
+We needed to normalize the counts in the histogram for better comparison between diagnosed and non-diagnosed patients.
+```{r}
+# Calculate the total number of diagnosed and non-diagnosed patients
+total_diagnosed <- nrow(diagnosed_data)
+total_non_diagnosed <- nrow(non_diagnosed_data)
+
+# Create a function to normalize counts
+normalize_counts <- function(counts, total) {
+  counts / total
+}
+
+# Normalize counts for diagnosed patients
+diagnosed_data <- diagnosed_data %>%
+  group_by(`Level.of.cramps.with.period`) %>%
+  summarize(count = n()) %>%
+  mutate(normalized_count = normalize_counts(count, total_diagnosed))
+
+# Normalize counts for non-diagnosed patients
+non_diagnosed_data <- non_diagnosed_data %>%
+  group_by(`Level.of.cramps.with.period`) %>%
+  summarize(count = n()) %>%
+  mutate(normalized_count = normalize_counts(count, total_non_diagnosed))
+
+# Create a bar plot for diagnosed patients
+diagnosed_plot <- ggplot(diagnosed_data, aes(x = factor(`Level.of.cramps.with.period`, levels = c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10")), y = normalized_count)) +
+  geom_bar(fill = "blue", stat = "identity") +
+  labs(x = "Pain Level", y = "Normalized Count", title = "Pain Level Comparison - Diagnosed Patients") +
+  theme_minimal()
+
+# Create a bar plot for non-diagnosed patients
+non_diagnosed_plot <- ggplot(non_diagnosed_data, aes(x = factor(`Level.of.cramps.with.period`, levels = c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10")), y = normalized_count)) +
+  geom_bar(fill = "red", stat = "identity") +
+  labs(x = "Pain Level", y = "Normalized Count", title = "Pain Level Comparison - Non-Diagnosed Patients") +
+  theme_minimal()
+
+# Combine the plots into a single plot
+combined_plot <- plot_grid(diagnosed_plot, non_diagnosed_plot, nrow = 2)
+
+# Display the combined plot
+print(combined_plot)
+
+
+```
+Since the data is normalized, it can be seen that 0.4 of the patients diagnosed with endo testified to severe menstrual pain compared to the evidence of women not diagnosed with endo (0.25). In addition, most of the diagnosed patients testify to severe menstrual pain at strong levels compared to those who are not diagnosed, for whom the range of pain is wider.
+
+
+## Different treatments
+first of all we would like to check the effectiveness of the hormonal treatment. In our data there is a column 'Initial.visual.analog.score'. A visual analog scale (VAS) is a measurement tool commonly used in medical and research settings to assess subjective experiences or perceptions, such as pain intensity.
+```{r}
+# create a frequency table of Company.Location
+freq_table <- table(mydata$Initial.visual.analog.score)
+
+# create a dataframe from the frequency table
+freq_df <- data.frame(location = names(freq_table), frequency = as.numeric(freq_table))
+
+# order the dataframe by frequency and select top 40 countries
+top_locations <- freq_df[order(freq_df$frequency, decreasing = TRUE), ][1:40, "location"]
+
+# filter the data to only include the top 40 countries
+mydata_filtered <- mydata[mydata$Initial.visual.analog.score %in% top_locations, ]
+mydata_filtered <- mydata[complete.cases(mydata$Initial.visual.analog.score) & complete.cases(mydata$prior.hormone.therapy..page.4.), ]
+
+# Create the violin plot
+ggplot(data = mydata_filtered, aes(x = prior.hormone.therapy..page.4., y = Initial.visual.analog.score)) +
+  geom_violin(fill = "lightblue", color = "black") +
+  geom_jitter(color = "black", width = 0.2, alpha = 0.5) +
+  xlab("Type of Hormone Therapy") +
+  ylab("Pain Score") +
+  ggtitle("Correlation between Type of Hormone Therapy and Pain Score")
+
+ggplot(data = mydata_filtered, aes(x = factor(prior.hormone.therapy..page.4., levels = 0:4), y = Initial.visual.analog.score, fill = factor(prior.hormone.therapy..page.4., levels = 0:4))) +
+  geom_violin(color = "black") +
+  geom_jitter(color = "black", width = 0.2, alpha = 0.5) +
+  scale_x_discrete(breaks = 0:4, labels = c("none", "COC/estrogen method", "dep provera", "IUD", "Lupron")) +
+  scale_fill_manual(values = c("lightblue", "lightblue", "lightblue", "lightblue", "lightblue")) +
+  xlab("Type of Hormone Therapy") +
+  ylab("Pain Score") +
+  ggtitle("Correlation between Type of Hormone Therapy and Pain Score") +
+  theme(legend.title = element_blank(), legend.position = "bottom")
+
+
+```
+The violin plot will display the "type of hormone therapy" on the x-axis and the "Pain Score" on the y-axis.The light blue area represents the density or frequency of data points at different values along the y-axis (in this case, the pain score). The width of the violin at each y-value indicates the estimated density of data points at that specific value. The wider the violin, the higher the density of data points at that particular value. Each data point represents an individual observation, and the color of the data points represents the different categories of "type of hormone therapy". The color scale used ranges from red to green.
+the different type of hormones are:
+0=none
+1=COC/estrogen method- The combined oral contraceptive pill (COC) is a tablet that contains two hormones, progestogen and estrogen, and is taken daily to prevent pregnancy.
+2=dep provera - An injectable contraceptive. This is a hormonal treatment based on progestin, which is injected into the muscle and is released slowly, thus delaying ovulation in the uterus.
+3=IUD - Intrauterine device
+4=Lupron - is used to prevent premature ovulation in cycles of controlled ovarian stimulation for in vitro fertilization (IVF).
+
+We can infer important information from this plot. for example:
+1) The ones that are using the 4th type of hormone therapy, Lupron, have a strong pain score. From the research we     have done, we discovered that this drug has serious side effects so in order to use the drug, the medical condition   is probably really serious.
+2) There is no difference in the distribution of the different pain scores between the different hormonal treatments.   In all of them the pain levels are varied in the same way.
+3)The majority of individuals in the dataset have either "none" (0) or "COC/estrogen method" (1) as their type of      hormone therapy.
+
+#PCA
+This code performs Principal Component Analysis (PCA) on a dataset to explore its patterns and variability.
+The PCA contains some inportant steps:
+1)Data preprocessin: removing the "Intraoperative.complication" column from the original dataset, resulting in mydata_clean, checks for constant and zero columnsand retains only the valid columns that have varying values.
+2)Data normalization:Four different normalization techniques-z-score normalization,min-max normalization, decimal scaling normalization and log transformation normalization.
+3) PCA computation: Principal component scores and loadings for each dataset are stored.
+4) Data frame creation for plotting and plotting. 
+```{r}
+# Remove the "Intraoperative.complication" column
+mydata_clean <- mydata[1:(nrow(mydata)-3), ]
+data_clean <- mydata_clean[, -which(names(mydata_clean) == "Intraoperative.complication")]
+data_clean
+# Remove the label column
+data_without_label <- data_clean[, -which(names(data_clean) == "Diagnosed.with.endo..ie.at.least.one.biopsy.positve.")]
+
+# Check for constant and zero columns
+non_constant_cols <- sapply(data_without_label, function(x) !all(x == x[1]))
+non_zero_cols <- sapply(data_without_label, function(x) any(x != 0))
+valid_cols <- non_constant_cols & non_zero_cols
+
+# Select only valid columns
+data_without_label <- data_without_label[, valid_cols]
+
+# Z-score normalization
+zscore_data <- scale(data_without_label)
+
+# Min-max normalization
+minmax_data <- apply(data_without_label, 2, function(x) (x - min(x)) / (max(x) - min(x)))
+
+# Decimal scaling normalization
+decimal_data <- apply(data_without_label, 2, function(x) x / 10^ceiling(log10(max(abs(x)))))
+
+# Log transformation normalization
+log_data <- log1p(abs(data_without_label)) * sign(data_without_label)
+
+# Unit vector transformation normalization
+unit_vector_data <- sweep(data_without_label, 2, sqrt(rowSums(data_without_label^2)), FUN = "/")
+
+# Perform PCA on z-score normalized data
+pca_result_zscore <- prcomp(zscore_data)
+
+# Perform PCA on min-max normalized data
+pca_result_minmax <- prcomp(minmax_data)
+
+# Perform PCA on decimal scaled data
+pca_result_decimal <- prcomp(decimal_data)
+
+# Perform PCA on log transformed data
+pca_result_log <- prcomp(log_data)
+
+# Perform PCA on unit vector transformed data
+pca_result_unit_vector <- prcomp(unit_vector_data)
+
+# Create a data frame for plotting (z-score normalization)
+pca_graph_zscore <- data.frame(
+  PC1 = pca_result_zscore$x[, 1],
+  PC2 = pca_result_zscore$x[, 2],
+  label = data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.,
+  classification = factor(data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve., levels = c(0, 1), labels = c("0: Healthy", "1: Sick"))
+)
+
+pca_graph_decimal <- data.frame(
+  PC1 = pca_result_decimal$x[, 1],
+  PC2 = pca_result_decimal$x[, 2],
+  label = data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.,
+  classification = factor(data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve., levels = c(0, 1), labels = c("0: Healthy", "1: Sick"))
+)
+
+pca_graph_log <- data.frame(
+  PC1 = pca_result_log$x[, 1],
+  PC2 = pca_result_log$x[, 2],
+  label = data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.,
+  classification = factor(data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve., levels = c(0, 1), labels = c("0: Healthy", "1: Sick"))
+)
+
+pca_graph_unit_vector <- data.frame(
+  PC1 = pca_result_unit_vector$x[, 1],
+  PC2 = pca_result_unit_vector$x[, 2],
+  label = data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.,
+  classification = factor(data_clean$Diagnosed.with.endo..ie.at.least.one.biopsy.positve., levels = c(0, 1), labels = c("0: Healthy", "1: Sick"))
+)
+
+# Plot PCA results for z-score normalized data
+library(ggplot2)
+ggplot(pca_graph_zscore, aes(x = PC1, y = PC2, col = classification)) +
+  geom_point() + labs(title = "Z-Score Normalization PCA Results")
+
+# Plot PCA results for decimal scaled data
+ggplot(pca_graph_decimal, aes(x = PC1, y = PC2, col = classification)) +
+  geom_point() + labs(title = "Decimal Scaling PCA Results")
+
+# Plot PCA results for log transformed data
+ggplot(pca_graph_log, aes(x = PC1, y = PC2, col = classification)) +
+  geom_point() + labs(title = "Log Transformation PCA Results")
+
+# Plot PCA results for unit vector transformed data
+ggplot(pca_graph_unit_vector, aes(x = PC1, y = PC2, col = classification)) +
+  geom_point() + labs(title = "Unit Vector Transformation PCA Results")
+
+
+
+
+```
+ased on the results of the PCA plots, it can be concluded that the data is not linearly separable. The data points belonging to the Healthy and Sick classes overlap and do not form distinct clusters in the PCA space. This suggests that a linear classification approach may not be sufficient to accurately classify the data. Non-linear classification algorithms or additional feature engineering may be necessary to improve the separation between the two classes.
+#KNN
+KNN can be effective for non-linearly separable data because it considers the local structure of the data. It assigns a label to a new data point based on the labels of its nearest neighbors. If there are distinct clusters or groups within the data, KNN can capture those patterns and make accurate predictions.
+
+## Creating the train data / test data
+
+```{r train_test_sets,echo=TRUE,message=FALSE}
+set.seed(112233)
+
+# Split the data into training and testing sets
+train_indices <- sample(1:nrow(mydata), 0.7 * nrow(mydata))  # 70% for training
+train_data <- mydata[train_indices, ]
+test_data <- mydata[-train_indices, ]
+
+# Scale numeric columns
+train_data[, 3:46] <- scale(train_data[, 3:46])
+test_data[, 3:46] <- scale(test_data[, 3:46])
+
+# Extract labels for train_data and test_data
+train_labels <- train_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.
+test_labels <- test_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.
+
+train_size <- nrow(train_data)
+class_size <- length(train_labels)
+
+KNN_DF <- data.frame(number = 1:dim(test_data)[1], stringsAsFactors = TRUE)
+KNN_AUC <- c()
+ks <- c()
+
+if (train_size != class_size) {
+  stop("Mismatch in the lengths of training data and class labels.")
+}
+
+```
+We did a test which K should we choose according to the accuracy values ​​that each K yields.
+```{r KNN,echo=TRUE,message=FALSE,out.width="50%"}
+
+library(pROC)
+
+# Remove rows with missing values
+train_data <- na.omit(train_data)
+test_data <- na.omit(test_data)
+
+# Check for missing values again
+if (anyNA(train_data) || anyNA(test_data)) {
+  stop("Missing values found in the data. Please handle or remove them before applying KNN.")
+}
+
+# Extract the class labels for training data
+train_labels <- train_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.
+
+KNN_AUC <- c()
+ks <- c()
+
+for (K in 2:20) {
+  predictions <- knn(train = train_data,
+                     test = test_data, cl = train_labels, k = K)
+  KNN_DF[toString(K)] <- as.numeric(predictions)
+  roc_auc <- auc(as.numeric(test_labels), as.numeric(predictions))
+  KNN_AUC <- append(KNN_AUC, roc_auc)
+  ks <- append(ks, toString(K))
+  print(paste("AUC for k ", toString(K), " : ", toString(roc_auc), sep = ""), quote = FALSE)
+}
+
+# Create a data frame with ks and KNN_AUC for plotting
+roc_data <- data.frame(ks = as.numeric(ks), KNN_AUC)
+
+# Sort the data frame by ks in ascending order
+roc_data <- roc_data[order(roc_data$ks), ]
+
+ggplot(roc_data, aes(x = ks, y = KNN_AUC)) +
+  ggtitle("AUC of different k") +
+  geom_point(color = "blue", size = 3)
+
+
+```
+
+One of the best models of KNN is when K=8 there both AUC score is 0.754.
+now lets see in the ROC plot.
+
+```{r visulize_knn,echo=TRUE,message=FALSE,out.height="30%"}
+
+# Plot the ROC curve
+plot.roc(test_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve., KNN_DF$'8', main = "KNN ROC", print.auc = TRUE)
+
+```
+This is not good enough, we will try other algorithms that will provide us better results. 
+## svm
+we need to use the kernel trick because our data is non linear separable. 
+```{r}
+
+library(kernlab)
+library(pROC)
+
+# SVM with kernel = "vanilladot"
+MS_classifier_vanilladot <- ksvm(Diagnosed.with.endo..ie.at.least.one.biopsy.positve. ~ .,
+                                data = train_data, kernel = "vanilladot", prob.model = TRUE, type = "C-svc")
+ksvmPredict_vanilladot <- predict(MS_classifier_vanilladot, test_data)
+table(ksvmPredict_vanilladot, test_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.)
+
+# SVM with kernel = "anovadot"
+MS_classifier_anovadot <- ksvm(Diagnosed.with.endo..ie.at.least.one.biopsy.positve. ~ .,
+                              data = train_data, kernel = "anovadot", prob.model = TRUE, type = "C-svc")
+ksvmPredict_anovadot <- predict(MS_classifier_anovadot, test_data)
+table(ksvmPredict_anovadot, test_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.)
+
+# Calculate AUC for KSVM with kernel = "anovadot"
+ksvm_auc <- auc(as.numeric(test_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.), as.numeric(ksvmPredict_anovadot))
+print(paste("AUC for KSVM (anovadot): ", toString(ksvm_auc), sep = ""))
+
+# Plot ROC curve for KSVM
+plot.roc(test_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve., as.numeric(ksvmPredict_anovadot),
+         main = "KSVM ROC", print.auc = TRUE)
+
+```
+ROC use the ratio between Sensitivity(0.7317), Specificity(0.857).
+
+```{r}
+# SVM Confusion Matrix
+svmConfMat
+```
+Accuracy of 0.8. This is good compared to the fact that our data is small.Bonus, the Confusion Matrix is looking good. 
+### Improving SVM Model
+we will try another method of svm and lets see if we are capable of improving the results.  
+```{r}
+train_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve. <- as.factor(train_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.)
+zero_var <- nearZeroVar(train_data, saveMetrics = TRUE)
+
+fitControl <- trainControl(
+  method = "repeatedcv",
+  repeats = 5,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,  # Use ROC as the summary function for binary classification
+  allowParallel = TRUE
+)
+
+
+
+```
+Let's try using a different method.
+```{r}
+library(e1071)
+library(caret)
+
+# Set the seed for reproducibility
+set.seed(10)
+
+# Define the training control for classification
+fitControl <- trainControl(
+  method = "repeatedcv",
+  repeats = 5,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  allowParallel = TRUE
+)
+
+# Check the levels of the outcome variable
+levels(train_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.)
+# Output: [1] "0" "1"
+
+# Convert the outcome variable to a factor with two levels
+train_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve. <- factor(train_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve., levels = c("0", "1"))
+
+# Remove columns with zero variance
+train_data <- train_data[, -nearZeroVar(train_data)]
+
+# Remove rows with missing values
+train_data <- na.omit(train_data)
+
+# Preprocess the data
+preprocess <- preProcess(train_data[, -1], method = c("center", "scale"))
+
+# Apply the preprocessing to the data
+train_data <- predict(preprocess, train_data)
+
+# Train the SVM model
+svmModel <- svm(
+  formula = Diagnosed.with.endo..ie.at.least.one.biopsy.positve. ~ .,
+  data = train_data,
+  kernel = "radial",
+  probability = TRUE
+)
+
+
+```
+
+```{r}
+# Make predictions on the test set
+svmPrediction <- predict(svmModel, test_data)
+svmPredictionProb <- predict(svmModel, test_data, probability = TRUE)
+
+# Extract the probabilities for the positive class
+svmPredictionProb <- attr(svmPredictionProb, "probabilities")[, 2]
+
+# Convert the predicted values to a factor with explicit levels
+svmPrediction <- factor(svmPrediction, levels = c("0", "1"))
+test_label <- factor(test_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve., levels = c("0", "1"))
+
+# Evaluate the model performance
+svmConfMat <- confusionMatrix(svmPrediction, test_label)
+
+
+
+# Print the accuracy and confusion matrix
+svmAccuracy <- svmConfMat$overall["Accuracy"]
+print(paste("Accuracy:", svmAccuracy))
+print("Confusion Matrix:")
+print(svmConfMat$table)
+
+
+```
+We tried to improve the model but seems like the first try did well.
+
+## SVC - Support Vector Classifiers
+Our data can't be easily separated. that is why we did the kernel trick. 
+
+```{r}
+library(e1071)
+library(caret)
+library(ggplot2)
+
+# Set the seed for reproducibility
+set.seed(10)
+
+# Split the data into training and test sets
+train_indices <- createDataPartition(dat$y, p = 0.7, list = FALSE)
+train_data <- dat[train_indices, ]
+test_data <- dat[-train_indices, ]
+
+# Train the SVM model
+svmModel <- svm(y ~ ., data = train_data, kernel = "radial", probability = TRUE)
+
+# Make predictions on the test set
+svmPrediction <- predict(svmModel, test_data)
+svmPredictionProb <- attr(predict(svmModel, test_data, probability = TRUE), "probabilities")[, 2]
+
+# Convert the predicted values to a factor with the same levels as the test data
+svmPrediction <- factor(svmPrediction, levels = levels(test_data$y))
+
+# Evaluate the model performance
+svmConfMat <- confusionMatrix(svmPrediction, test_data$y)
+
+# Plot data set with predicted classes
+dat$predicted <- predict(svmModel, dat)
+ggplot(data = dat, aes(x = x[, 2], y = x[, 1], color = predicted, shape = predicted)) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("#000000", "#FF0000")) +
+  labs(color = "Diagnosed", shape = "Diagnosed") +
+  theme(legend.position = "bottom")
+
+
+```
+
+In our case the data  is not linearly separable, however, the cost argument takes on real importance. This quantifies the penalty associated with having an observation on the wrong side of the classification boundary.
+this plot shows our data in higher dimension so it can be separable. 
+```{r}
+# Generate some sample data
+set.seed(123)
+x <- matrix(rnorm(100*2), ncol = 2)
+y <- factor(ifelse(x[,1] + x[,2] > 0, 1, -1))
+dat <- data.frame(x = x, y = y)
+
+# Perform PCA for dimensionality reduction
+pca <- prcomp(dat[, -ncol(dat)], center = TRUE, scale. = TRUE)
+
+# Project the data onto the first two principal components
+projected_data <- as.data.frame(predict(pca, newdata = dat[, -ncol(dat)]))
+
+# Combine the projected data with the labels
+projected_data <- cbind(projected_data, y = dat$y)
+
+# Plot the projected data in a higher dimension
+ggplot(data = projected_data, aes(x = PC1, y = PC2, color = y)) +
+  geom_point(size = 3) +
+  labs(color = "Class") +
+  theme_minimal() +
+  xlab("Principal Component 1") +
+  ylab("Principal Component 2") +
+  ggtitle("Data in Higher Dimension (PCA Projection)")
+
+# Generate some sample data
+set.seed(123)
+x <- matrix(rnorm(100*2), ncol = 2)
+y <- factor(ifelse(x[,1] + x[,2] > 0, 1, -1))
+dat <- data.frame(x = x, y = y)
+
+# Plot the original data in a higher dimension
+ggplot(data = dat, aes(x = x[, 1], y = x[, 2], color = y)) +
+  geom_point(size = 3) +
+  labs(color = "Class") +
+  theme_minimal() +
+  xlab("X1") +
+  ylab("X2") +
+  ggtitle("Data in Higher Dimension")
+
+
+```
+
+The higher the value of cost, the more the model tries to avoid a mis-classification.
+We want to decide what is the "best" cost for our data. So  instead of specifying a cost up front, we used the tune() function from e1071 to test various costs and identify which value produces the best fitting model:
+
+```{r}
+# find optimal cost of mis-classification
+tune.out <- tune(svm, y~., data = dat, kernel = "linear",
+                 ranges = list(cost = c(0.001, 0.01, 0.1, 1, 5, 10, 100)))
+# extract the best model
+(bestmod <- tune.out$best.model)
+```
+
+With the optimal cost calculated, we can construct a table of predicted classes against true classes using the predict() command as follows:
+
+```{r}
+ypred <- predict(bestmod, dat)
+(misclass <- table(predict = ypred, truth = dat$y))
+```
+
+Using this support vector classifier did an ok job, but the data we generated was small.
+
+
+
+
+## Random Forest
+```{r}
+detach("package:dplyr", unload = TRUE)
+install.packages("dplyr")
+library(dplyr)
+library(tidymodels)
+
+library(ranger)
+
+# Create random forest model
+rf_mod <- 
+  rand_forest(trees = 1000) %>% 
+  set_engine("ranger") %>%   
+  set_mode("classification")
+
+```
+## desicion tree
+
+## conclution:
+The code above provides exploratory data analysis (EDA) techniques such as PCA (Principal Component Analysis) and feature selection. Analysis for determining the important features specific to endometriosis classification. Identifying important features is crucial for understanding the underlying factors contributing to endometriosis and building effective classification models.
+In addition, The conclusion drawn from the PCA plots indicates that the data is not linearly separable in the transformed feature space. 
+Classification Performance: 4 algoritms of machine learning, knn, svm, #############################complete it Or####################.
+#### add more####################
+
+
+In summary, while some data exploration and machine learning classifications were performed, a comprehensive analysis of feature importance, model evaluation, and improvement strategies for classification accuracy were not explicitly addressed in the provided information. Further analysis and experimentation are needed to gain deeper insights and enhance the classification of endometriosis using the available data.
