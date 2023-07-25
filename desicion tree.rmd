@@ -1,0 +1,83 @@
+
+
+```{r setup, results='hide'}
+install.packages("rpart")   # For building decision trees
+install.packages("rpart.plot")   # For visualizing decision trees
+
+```
+
+In this updated code, we are creating a new data frame called "endometriosis_data" by excluding the last 3 rows from the original "mydata" data frame. These last 3 rows are considered non-informative as they contain various statistical summary information that is not relevant for further analysis.
+
+
+```{r}
+# Load required libraries
+library(rpart)
+library(rpart.plot)
+
+# Read the data from the CSV file
+mydata <- read.csv("imputed_data.csv")
+# Create a new data frame without the last 3 rows
+endometriosis_data <- head(mydata, -3)
+# Convert the target variable "Diagnosed.with.endo..ie.at.least.one.biopsy.positve." to a factor
+endometriosis_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve. <- as.factor(endometriosis_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.)
+
+# Split the data into training and test sets (80% training, 20% test)
+set.seed(1234)
+train_index <- sample(1:nrow(endometriosis_data), 0.8 * nrow(endometriosis_data))
+train_data <- endometriosis_data[train_index, ]
+test_data <- endometriosis_data[-train_index, ]
+
+# Build the decision tree model with adjusted control parameters
+tree_model <- rpart(Diagnosed.with.endo..ie.at.least.one.biopsy.positve. ~ .,
+                    data = train_data,
+                    method = "class",    # For classification task
+                    control = rpart.control(minsplit = 20, minbucket = 10, cp = 0.001))
+
+# Visualize the decision tree
+rpart.plot(tree_model)
+
+# Make predictions on the test set
+predictions <- predict(tree_model, test_data, type = "class")
+
+# Evaluate the model's accuracy
+correct_predictions <- sum(predictions == test_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.)
+total_samples <- nrow(test_data)
+accuracy <- correct_predictions / total_samples
+cat("Model Accuracy:", accuracy, "\n")
+
+```
+The short decision tree with just one feature is due to the fact that the algorithm did not find other informative features to create meaningful splits and improve the prediction. The decision tree's structure is inherently limited by the available data and the relationships between features and the target variable.
+
+Since the feature representing the number of affected sites does not provide sufficient information for predictive modeling and is more suitable for classification rather than prediction, the decision was made to exclude this feature from the analysis. By removing this feature, we aim to train the algorithm without relying on a non-informative predictor, which can lead to a more robust and accurate model.
+
+After excluding the feature, the decision tree will be constructed using other relevant features that are more informative and have a stronger relationship with the target variable, potentially resulting in a more insightful and meaningful tree.
+```{r}
+endometriosis_data <- subset(endometriosis_data, select = -X..sites.with.confirmed.endo.on.histology)
+# Convert the target variable "Diagnosed.with.endo..ie.at.least.one.biopsy.positve." to a factor
+endometriosis_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve. <- as.factor(endometriosis_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.)
+
+# Split the data into training and test sets (80% training, 20% test)
+set.seed(1234)
+train_index <- sample(1:nrow(endometriosis_data), 0.8 * nrow(endometriosis_data))
+train_data <- endometriosis_data[train_index, ]
+test_data <- endometriosis_data[-train_index, ]
+
+# Build the decision tree model with adjusted control parameters
+tree_model <- rpart(Diagnosed.with.endo..ie.at.least.one.biopsy.positve. ~ .,
+                    data = train_data,
+                    method = "class",    # For classification task
+                    control = rpart.control(minsplit = 20, minbucket = 10, cp = 0.001))
+
+# Visualize the decision tree
+rpart.plot(tree_model)
+
+# Make predictions on the test set
+predictions <- predict(tree_model, test_data, type = "class")
+
+# Evaluate the model's accuracy
+correct_predictions <- sum(predictions == test_data$Diagnosed.with.endo..ie.at.least.one.biopsy.positve.)
+total_samples <- nrow(test_data)
+accuracy <- correct_predictions / total_samples
+cat("Model Accuracy:", accuracy, "\n")
+
+```
