@@ -46,14 +46,14 @@ An exploratory data analysis was conducted, including a correlation plot. This v
 **Decision Tree**
 * A decision tree model is employed to establish decision rules based on different features, aiding in diagnosis prediction.
 
-##Project Files
+## Project Files
 **FinalProjectML.Rmd:**
 * The R Markdown file containing the code for the analysis, including data cleaning, exploratory data analysis, and machine learning model implementations.
 
 **FinalProjectML.pdf:**
 * The PDF file showcasing visualizations and results obtained from exploratory data analysis, PCA, and machine learning algorithms.
 
-##Running the Code
+## Running the Code
 Ensure you have the required R packages installed:
 ```shell
 install.packages("mice")
