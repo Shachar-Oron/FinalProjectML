@@ -55,14 +55,14 @@ An exploratory data analysis was conducted, including a correlation plot. This v
 
 ##Running the Code
 Ensure you have the required R packages installed:
---shel
+```shell
 install.packages("mice")
 install.packages("class")   # for KNN
 install.packages("e1071")   # for SVM
 install.packages("cluster") # for K-Means
 install.packages("rpart")   # for Decision Tree
 Open and run the 'FinalProjectML.Rmd' file in your R environment.
---
+```
 
 Explore the analysis results in the generated 'FinalProjectML.pdf' file.
 
